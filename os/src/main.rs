@@ -53,13 +53,13 @@ pub fn rust_main() -> ! {
     }
     clear_bss();
     logging::init();
-    println!("[kernel] Hello, world!");
-    trace!(
+    println!("\x1b[31m[kernel] Hello, world!\x1b[0m");
+    info!(
         "[kernel] .text [{:#x}, {:#x})",
         stext as usize,
         etext as usize
     );
-    debug!(
+    info!(
         "[kernel] .rodata [{:#x}, {:#x})",
         srodata as usize, erodata as usize
     );
@@ -67,11 +67,11 @@ pub fn rust_main() -> ! {
         "[kernel] .data [{:#x}, {:#x})",
         sdata as usize, edata as usize
     );
-    warn!(
+    info!(
         "[kernel] boot_stack top=bottom={:#x}, lower_bound={:#x}",
         boot_stack_top as usize, boot_stack_lower_bound as usize
     );
-    error!("[kernel] .bss [{:#x}, {:#x})", sbss as usize, ebss as usize);
+    info!("[kernel] .bss [{:#x}, {:#x})", sbss as usize, ebss as usize);
 
     use crate::board::QEMUExit;
     crate::board::QEMU_EXIT_HANDLE.exit_success(); // CI autotest success
