@@ -14,7 +14,7 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
-use crate::config::MAX_APP_NUM;
+use crate::config::{MAX_APP_NUM, MAX_SYSCALL_NUM};
 use crate::loader::{get_num_app, init_app_cx};
 use crate::sync::UPSafeCell;
 use lazy_static::*;
@@ -45,6 +45,8 @@ pub struct TaskManagerInner {
     tasks: [TaskControlBlock; MAX_APP_NUM],
     /// id of current `Running` task
     current_task: usize,
+    ///
+    syscall_times: [u32; MAX_SYSCALL_NUM],
 }
 
 lazy_static! {
@@ -65,6 +67,7 @@ lazy_static! {
                 UPSafeCell::new(TaskManagerInner {
                     tasks,
                     current_task: 0,
+                    syscall_times: [0; MAX_SYSCALL_NUM]
                 })
             },
         }
@@ -76,6 +79,12 @@ impl TaskManager {
     ///
     /// Generally, the first task in task list is an idle task (we call it zero process later).
     /// But in ch3, we load apps statically, so the first task is a real app.
+    fn get_task_status(&self) -> TaskStatus {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].task_status.clone()
+    }
+
     fn run_first_task(&self) -> ! {
         let mut inner = self.inner.exclusive_access();
         let task0 = &mut inner.tasks[0];
@@ -135,6 +144,29 @@ impl TaskManager {
             panic!("All applications completed!");
         }
     }
+    fn record_syscall(&self, syscall_id: usize) {
+        let inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.syscall_times[syscall_id] += 1;
+    }
+
+    fn get_syscall_num(&self) -> usize {
+        let inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.syscall_times
+    }
+}
+
+pub fn record_syscall(syscall_id: usize) {
+    TASK_MANAGER.record_syscall(syscall_id);
+}
+
+pub fn get_current_task_status() -> TaskStatus {
+    TASK_MANAGER.get_task_status()
+}
+
+pub fn get_current_syscall_num() -> usize {
+    TASK_MANAGER.get_syscall_num()
 }
 
 /// Run the first task in task list.
