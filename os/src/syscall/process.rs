@@ -1,10 +1,11 @@
 //! Process management syscalls
 // use core::borrow::BorrowMut;
 
+
 use crate::{
     config::MAX_SYSCALL_NUM,
     task::{exit_current_and_run_next, suspend_current_and_run_next, TaskStatus, get_current_task_status, get_current_sys_time, get_current_syscall_times},
-    timer::{get_time_us, get_time},
+    timer::{get_time_us, get_time_ms},
 };
 
 #[repr(C)]
@@ -57,12 +58,12 @@ pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
     trace!("kernel: sys_task_info");
     let status = get_current_task_status();
     let syscall_times = get_current_syscall_times();
-    let time = get_current_sys_time();
+    let time = get_time_ms() - get_current_sys_time();
     unsafe {
         *_ti = TaskInfo {
             status,
             syscall_times,
-            time: get_time() - time,
+            time
         }
     }
     0
