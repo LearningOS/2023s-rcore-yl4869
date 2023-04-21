@@ -5,7 +5,6 @@
 //!
 //! A single global instance of [`TaskManager`] called `TASK_MANAGER` controls
 //! all the tasks in the operating system.
-//!
 //! Be careful when you see `__switch` ASM function in `switch.S`. Control flow around this function
 //! might not be what you expect.
 
@@ -17,6 +16,7 @@ mod task;
 use crate::config::{MAX_APP_NUM, MAX_SYSCALL_NUM};
 use crate::loader::{get_num_app, init_app_cx};
 use crate::sync::UPSafeCell;
+use crate::timer::get_time;
 use lazy_static::*;
 use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
@@ -45,8 +45,6 @@ pub struct TaskManagerInner {
     tasks: [TaskControlBlock; MAX_APP_NUM],
     /// id of current `Running` task
     current_task: usize,
-    ///
-    syscall_times: [u32; MAX_SYSCALL_NUM],
 }
 
 lazy_static! {
@@ -56,6 +54,8 @@ lazy_static! {
         let mut tasks = [TaskControlBlock {
             task_cx: TaskContext::zero_init(),
             task_status: TaskStatus::UnInit,
+            syscall_times: [0; MAX_SYSCALL_NUM],
+            sys_time: 0,
         }; MAX_APP_NUM];
         for (i, task) in tasks.iter_mut().enumerate() {
             task.task_cx = TaskContext::goto_restore(init_app_cx(i));
@@ -67,7 +67,6 @@ lazy_static! {
                 UPSafeCell::new(TaskManagerInner {
                     tasks,
                     current_task: 0,
-                    syscall_times: [0; MAX_SYSCALL_NUM]
                 })
             },
         }
@@ -79,11 +78,6 @@ impl TaskManager {
     ///
     /// Generally, the first task in task list is an idle task (we call it zero process later).
     /// But in ch3, we load apps statically, so the first task is a real app.
-    fn get_task_status(&self) -> TaskStatus {
-        let mut inner = self.inner.exclusive_access();
-        let current = inner.current_task;
-        inner.tasks[current].task_status.clone()
-    }
 
     fn run_first_task(&self) -> ! {
         let mut inner = self.inner.exclusive_access();
@@ -131,6 +125,7 @@ impl TaskManager {
             let mut inner = self.inner.exclusive_access();
             let current = inner.current_task;
             inner.tasks[next].task_status = TaskStatus::Running;
+            inner.tasks[next].sys_time = get_time();
             inner.current_task = next;
             let current_task_cx_ptr = &mut inner.tasks[current].task_cx as *mut TaskContext;
             let next_task_cx_ptr = &inner.tasks[next].task_cx as *const TaskContext;
@@ -144,29 +139,50 @@ impl TaskManager {
             panic!("All applications completed!");
         }
     }
-    fn record_syscall(&self, syscall_id: usize) {
+
+    fn get_task_status(&self) -> TaskStatus {
         let inner = self.inner.exclusive_access();
         let current = inner.current_task;
-        inner.syscall_times[syscall_id] += 1;
+        inner.tasks[current].task_status.clone()
     }
 
-    fn get_syscall_num(&self) -> usize {
+    fn record_syscall(&self, syscall_id: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].syscall_times[syscall_id] += 1;
+    }
+
+    fn get_syscall_times(&self) -> [u32; MAX_SYSCALL_NUM] {
         let inner = self.inner.exclusive_access();
         let current = inner.current_task;
-        inner.syscall_times
+        inner.tasks[current].syscall_times
+    }
+
+    fn get_sys_time(&self) -> usize {
+        let inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].sys_time
     }
 }
 
+/// return sys time
+pub fn get_current_sys_time() -> usize {
+    TASK_MANAGER.get_sys_time()
+}
+
+/// record syscall
 pub fn record_syscall(syscall_id: usize) {
     TASK_MANAGER.record_syscall(syscall_id);
 }
 
+/// get current_task status
 pub fn get_current_task_status() -> TaskStatus {
     TASK_MANAGER.get_task_status()
 }
 
-pub fn get_current_syscall_num() -> usize {
-    TASK_MANAGER.get_syscall_num()
+/// get current syscall num
+pub fn get_current_syscall_times() -> [u32; MAX_SYSCALL_NUM] {
+    TASK_MANAGER.get_syscall_times()
 }
 
 /// Run the first task in task list.
