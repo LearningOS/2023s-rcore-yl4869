@@ -276,3 +276,17 @@ impl Iterator for UserBufferIterator {
         }
     }
 }
+
+/// complete the vaddr map
+pub fn vaddr_mapped(token: usize, vpn: VirtPageNum) -> bool {
+    let page_table = PageTable::from_token(token);
+    if let Some(_a) = page_table.find_pte(vpn) {
+        if _a.is_valid() {
+            true
+        } else {
+            false
+        }
+    } else {
+        false
+    }
+}

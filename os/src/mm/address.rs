@@ -203,6 +203,11 @@ impl PhysPageNum {
         let pa: PhysAddr = (*self).into();
         pa.get_mut()
     }
+
+    /// a
+    pub fn get_pa(&self, va: VirtAddr) -> PhysAddr {
+        PhysAddr::from(self.0 << PAGE_SIZE_BITS | va.page_offset())
+    }
 }
 
 /// iterator for phy/virt page number
