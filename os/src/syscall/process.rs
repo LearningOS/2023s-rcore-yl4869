@@ -1,10 +1,15 @@
 //! Process management syscalls
+use core::mem;
+
 use crate::{
     config::MAX_SYSCALL_NUM,
     task::{
-        change_program_brk, exit_current_and_run_next, suspend_current_and_run_next, TaskStatus,
-    },
+        change_program_brk, exit_current_and_run_next, suspend_current_and_run_next, TaskStatus, current_user_token,
+    }, timer::get_time_us,
 };
+
+use crate::mm::translated_byte_buffer;
+
 
 #[repr(C)]
 #[derive(Debug)]
@@ -43,6 +48,13 @@ pub fn sys_yield() -> isize {
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
 pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
     trace!("kernel: sys_get_time");
+    let us = get_time_us();
+    let mut timeval = translated_byte_buffer(current_user_token(), _ts as *const u8, core::mem::size_of::<TimeVal>());
+    if timeval.len() == 1 {
+        let mut s: = timeval[0];
+    } else {
+        panic!("error: the pages is splitted");
+    }
     -1
 }
 
