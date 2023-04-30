@@ -1,8 +1,9 @@
 //! Types related to task management & Functions for completely changing TCB
 use super::TaskContext;
 use super::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
+use crate::config::MAX_SYSCALL_NUM;
 use crate::config::TRAP_CONTEXT_BASE;
-use crate::mm::{MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE};
+use crate::mm::{MapPermission, MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE};
 use crate::sync::UPSafeCell;
 use crate::trap::{trap_handler, TrapContext};
 use alloc::sync::{Arc, Weak};
@@ -33,6 +34,21 @@ impl TaskControlBlock {
     pub fn get_user_token(&self) -> usize {
         let inner = self.inner_exclusive_access();
         inner.memory_set.token()
+    }
+    /// get_sys_time
+    pub fn get_sys_time(&self) -> usize {
+        let inner = self.inner_exclusive_access();
+        inner.get_time()
+    }
+    /// get_syscall_times
+    pub fn get_syscall_times(&self) -> [u32; MAX_SYSCALL_NUM] {
+        let inner = self.inner_exclusive_access();
+        inner.get_syscall_times()
+    }
+    /// get_status
+    pub fn get_status(&self) -> TaskStatus {
+        let inner = self.inner_exclusive_access();
+        inner.get_status()
     }
 }
 
@@ -68,6 +84,16 @@ pub struct TaskControlBlockInner {
 
     /// Program break
     pub program_brk: usize,
+
+    /// Syscall times
+    pub syscall_times: [u32; MAX_SYSCALL_NUM],
+
+    /// Sys time
+    pub sys_time: usize,
+
+    pub priority: isize, 
+
+    pub stride: usize,
 }
 
 impl TaskControlBlockInner {
@@ -79,18 +105,23 @@ impl TaskControlBlockInner {
     pub fn get_user_token(&self) -> usize {
         self.memory_set.token()
     }
-    fn get_status(&self) -> TaskStatus {
+    /// get the task statu
+    pub fn get_status(&self) -> TaskStatus {
         self.task_status
     }
     pub fn is_zombie(&self) -> bool {
         self.get_status() == TaskStatus::Zombie
     }
+    pub fn get_syscall_times(&self) -> [u32; MAX_SYSCALL_NUM] {
+        self.syscall_times
+    }
+    pub fn get_time(&self) -> usize {
+        self.sys_time
+    }
 }
 
 impl TaskControlBlock {
-    /// Create a new process
-    ///
-    /// At present, it is only used for the creation of initproc
+    /// Based on the elf info in program, build the contents of task in a new address space
     pub fn new(elf_data: &[u8]) -> Self {
         // memory_set with elf program headers/trampoline/trap context/user stack
         let (memory_set, user_sp, entry_point) = MemorySet::from_elf(elf_data);
@@ -118,10 +149,64 @@ impl TaskControlBlock {
                     exit_code: 0,
                     heap_bottom: user_sp,
                     program_brk: user_sp,
+                    sys_time: 0,
+                    syscall_times: [0; 500],
+                    priority: 1,
+                    stride: 0,
                 })
             },
         };
         // prepare TrapContext in user space
+        let trap_cx = task_control_block.inner_exclusive_access().get_trap_cx();
+        *trap_cx = TrapContext::app_init_context(
+            entry_point,
+            user_sp,
+            KERNEL_SPACE.exclusive_access().token(),
+            kernel_stack_top,
+            trap_handler as usize,
+        );
+        task_control_block
+    }
+
+    /// spawn
+    pub fn spawn(self: &Arc<Self>, elf_data: &[u8]) -> Arc<Self> {
+        let mut parent_inner = self.inner_exclusive_access();
+
+        let (memory_set, user_sp, entry_point) = MemorySet::from_elf(elf_data);
+
+        let trap_cx_ppn = memory_set
+            .translate(VirtAddr::from(TRAP_CONTEXT_BASE).into())
+            .unwrap()
+            .ppn();
+
+        let pid_handle = pid_alloc();
+        let kernel_stack = kstack_alloc();
+        let kernel_stack_top = kernel_stack.get_top();
+
+        let task_control_block = Arc::new(TaskControlBlock {
+            pid: pid_handle,
+            kernel_stack,
+            inner: unsafe {
+                UPSafeCell::new(TaskControlBlockInner {
+                    trap_cx_ppn,
+                    base_size: user_sp,
+                    task_cx: TaskContext::goto_trap_return(kernel_stack_top),
+                    task_status: TaskStatus::Ready,
+                    memory_set,
+                    parent: Some(Arc::downgrade(self)),
+                    children: Vec::new(),
+                    exit_code: 0,
+                    heap_bottom: parent_inner.heap_bottom,
+                    program_brk: parent_inner.program_brk,
+                    sys_time: 0,
+                    syscall_times: [0; 500],
+                    stride: 0,
+                    priority: 0,
+                })
+            },
+        });
+
+        parent_inner.children.push(task_control_block.clone());
         let trap_cx = task_control_block.inner_exclusive_access().get_trap_cx();
         *trap_cx = TrapContext::app_init_context(
             entry_point,
@@ -191,6 +276,10 @@ impl TaskControlBlock {
                     exit_code: 0,
                     heap_bottom: parent_inner.heap_bottom,
                     program_brk: parent_inner.program_brk,
+                    sys_time: 0,
+                    syscall_times: [0; 500],
+                    stride: 0,
+                    priority: 0,
                 })
             },
         });
@@ -209,6 +298,25 @@ impl TaskControlBlock {
     /// get pid of process
     pub fn getpid(&self) -> usize {
         self.pid.0
+    }
+
+    /// set prio
+    pub fn set_prio(&self, prio: isize) {
+        let mut inner = self.inner_exclusive_access();
+        inner.priority = prio;
+    }
+    /// mmap
+    pub fn mmap(&self, start_va: VirtAddr, end_va: VirtAddr, permission: MapPermission) {
+        let mut inner = self.inner_exclusive_access();
+        inner
+            .memory_set
+            .insert_framed_area(start_va, end_va, permission)
+    }
+
+    /// ummap
+    pub fn munmap(&self, start_va: VirtAddr, end_va: VirtAddr) {
+        let mut inner = self.inner_exclusive_access();
+        inner.memory_set.remove_map_area(start_va, end_va);
     }
 
     /// change the location of the program break. return None if failed.
@@ -249,4 +357,24 @@ pub enum TaskStatus {
     Running,
     /// exited
     Zombie,
+}
+
+impl PartialEq for TaskControlBlock {
+    fn eq(&self, other: &Self) -> bool {
+        self.inner_exclusive_access().stride == other.inner_exclusive_access().stride
+    }
+}
+
+impl PartialOrd for TaskControlBlock {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.inner_exclusive_access().stride.cmp(&other.inner_exclusive_access().stride))
+    }
+}
+
+impl Eq for TaskControlBlock {}
+
+impl Ord for TaskControlBlock {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.inner_exclusive_access().stride.cmp(&other.inner_exclusive_access().stride)
+    }
 }
