@@ -8,6 +8,7 @@ use crate::trap::{trap_handler, TrapContext};
 use alloc::sync::{Arc, Weak};
 use alloc::vec::Vec;
 use core::cell::RefMut;
+use crate::config::MAX_SYSCALL_NUM;
 
 /// Task control block structure
 ///
@@ -68,6 +69,12 @@ pub struct TaskControlBlockInner {
 
     /// Program break
     pub program_brk: usize,
+
+    /// Syscall times
+    pub syscall_times: [u32; MAX_SYSCALL_NUM],
+
+    /// Sys time 
+    pub sys_time: usize
 }
 
 impl TaskControlBlockInner {
@@ -79,19 +86,12 @@ impl TaskControlBlockInner {
     pub fn get_user_token(&self) -> usize {
         self.memory_set.token()
     }
-    fn get_status(&self) -> TaskStatus {
+    /// get the task statu
+    pub fn get_task_status(&self) -> TaskStatus {
         self.task_status
     }
-    pub fn is_zombie(&self) -> bool {
-        self.get_status() == TaskStatus::Zombie
-    }
-}
-
-impl TaskControlBlock {
-    /// Create a new process
-    ///
-    /// At present, it is only used for the creation of initproc
-    pub fn new(elf_data: &[u8]) -> Self {
+    /// Based on the elf info in program, build the contents of task in a new address space
+    pub fn new(elf_data: &[u8], app_id: usize) -> Self {
         // memory_set with elf program headers/trampoline/trap context/user stack
         let (memory_set, user_sp, entry_point) = MemorySet::from_elf(elf_data);
         let trap_cx_ppn = memory_set

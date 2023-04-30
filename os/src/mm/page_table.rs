@@ -213,3 +213,16 @@ pub fn translated_refmut<T>(token: usize, ptr: *mut T) -> &'static mut T {
         .unwrap()
         .get_mut()
 }
+/// complete the vaddr map
+pub fn vaddr_mapped(token: usize, vpn: VirtPageNum) -> bool {
+    let page_table = PageTable::from_token(token);
+    if let Some(_a) = page_table.find_pte(vpn) {
+        if _a.is_valid() {
+            true
+        } else {
+            false
+        }
+    } else {
+        false
+    }
+}
