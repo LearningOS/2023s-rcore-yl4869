@@ -14,7 +14,10 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
+
+use crate::config::MAX_SYSCALL_NUM;
 use crate::loader::{get_app_data, get_num_app};
+use crate::mm::{VirtAddr, MapPermission};
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
 use alloc::vec::Vec;
@@ -120,6 +123,43 @@ impl TaskManager {
         inner.tasks[inner.current_task].get_user_token()
     }
 
+    /// Get the current 'Running' task's status 
+    fn get_current_status(&self) -> TaskStatus {
+        let inner = self.inner.exclusive_access();
+        inner.tasks[inner.current_task].get_task_status()
+    }
+    /// Get the current 'Running' task's syscall times 
+    fn get_syscall_times(&self) -> [u32; MAX_SYSCALL_NUM] {
+        let inner = self.inner.exclusive_access();
+        inner.tasks[inner.current_task].syscall_times
+    }
+
+    /// get memset
+    fn insert_map(&self, start_va: VirtAddr, end_va: VirtAddr, permission: MapPermission) {
+        let mut inner = self.inner.exclusive_access();
+        let current_task = inner.current_task;
+        inner.tasks[current_task].memory_set.insert_framed_area(start_va, end_va, permission)
+    }
+
+    /// remove memset 
+    fn remove_map(&self, start_va: VirtAddr, end_va: VirtAddr) {
+        let mut inner = self.inner.exclusive_access();
+        let current_task = inner.current_task;
+        inner.tasks[current_task].memory_set.remove_map_area(start_va, end_va);
+    }
+
+    /// Get the current 'Running' task's sys time 
+    fn get_sys_time(&self) -> usize {
+        let inner = self.inner.exclusive_access();
+        inner.tasks[inner.current_task].sys_time
+    }
+    /// record syscall
+    fn record_syscall(&self, syscall_id: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let current_task = inner.current_task;
+        inner.tasks[current_task].syscall_times[syscall_id] += 1;
+    }
+
     /// Get the current 'Running' task's trap contexts.
     fn get_current_trap_cx(&self) -> &'static mut TrapContext {
         let inner = self.inner.exclusive_access();
@@ -198,7 +238,37 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
     TASK_MANAGER.get_current_trap_cx()
 }
 
+/// Get the current 'Running' task's status
+pub fn current_status() -> TaskStatus{
+    TASK_MANAGER.get_current_status()
+}
+
+/// Get the current 'Running' task's times
+pub fn current_syscall_times() -> [u32; MAX_SYSCALL_NUM]{
+    TASK_MANAGER.get_syscall_times()
+}
+
+/// Get the current 'Running' task's time
+pub fn current_sys_time() -> usize {
+    TASK_MANAGER.get_sys_time()
+}
+
+/// record syscall 
+pub fn record_syscall(syscall_id: usize) {
+    TASK_MANAGER.record_syscall(syscall_id)
+}
+
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+
+///GET current memset
+pub fn insert_map(start_va: VirtAddr, end_va: VirtAddr, permission: MapPermission) {
+    TASK_MANAGER.insert_map(start_va, end_va, permission);
+}
+
+/// remove current memset 
+pub fn remove_map(start_va: VirtAddr, end_va: VirtAddr) {
+    TASK_MANAGER.remove_map(start_va, end_va);
 }

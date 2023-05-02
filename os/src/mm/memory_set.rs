@@ -78,6 +78,7 @@ impl MemorySet {
             PTEFlags::R | PTEFlags::X,
         );
     }
+
     /// Without kernel stacks.
     pub fn new_kernel() -> Self {
         let mut memory_set = Self::new_bare();
@@ -232,6 +233,19 @@ impl MemorySet {
     /// Translate a virtual page number to a page table entry
     pub fn translate(&self, vpn: VirtPageNum) -> Option<PageTableEntry> {
         self.page_table.translate(vpn)
+    }
+    /// Remove
+    pub fn remove_map_area(&mut self, start_va: VirtAddr, end_va: VirtAddr) {
+        let start_vpn = start_va.floor();
+        let _end_vpn = end_va.ceil();
+        // find the area and remove
+        for i in 0..self.areas.len() {
+            if self.areas[i].vpn_range.get_start() == start_vpn {
+                self.areas[i].unmap(&mut self.page_table);
+                self.areas.remove(i);
+                return;
+            }
+        }
     }
     /// shrink the area to new_end
     #[allow(unused)]
