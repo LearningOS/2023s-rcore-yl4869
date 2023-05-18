@@ -3,7 +3,7 @@ use super::TaskContext;
 use super::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
 use crate::config::MAX_SYSCALL_NUM;
 use crate::config::TRAP_CONTEXT_BASE;
-use crate::mm::{MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE};
+use crate::mm::{MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE, MapPermission};
 use crate::sync::UPSafeCell;
 use crate::trap::{trap_handler, TrapContext};
 use alloc::sync::{Arc, Weak};
@@ -34,6 +34,21 @@ impl TaskControlBlock {
     pub fn get_user_token(&self) -> usize {
         let inner = self.inner_exclusive_access();
         inner.memory_set.token()
+    }
+    /// get_sys_time
+    pub fn get_sys_time(&self) -> usize {
+        let inner = self.inner_exclusive_access();
+        inner.get_time()
+    }
+    /// get_syscall_times
+    pub fn get_syscall_times(&self) -> [u32;MAX_SYSCALL_NUM] {
+        let inner = self.inner_exclusive_access();
+        inner.get_syscall_times()
+    }
+    /// get_status
+    pub fn get_status(&self) -> TaskStatus {
+        let inner = self.inner_exclusive_access();
+        inner.get_status()
     }
 }
 
@@ -103,7 +118,7 @@ impl TaskControlBlockInner {
 
 impl TaskControlBlock {
     /// Based on the elf info in program, build the contents of task in a new address space
-    pub fn new(elf_data: &[u8], app_id: usize) -> Self {
+    pub fn new(elf_data: &[u8]) -> Self {
         // memory_set with elf program headers/trampoline/trap context/user stack
         let (memory_set, user_sp, entry_point) = MemorySet::from_elf(elf_data);
         let trap_cx_ppn = memory_set
@@ -225,6 +240,18 @@ impl TaskControlBlock {
     /// get pid of process
     pub fn getpid(&self) -> usize {
         self.pid.0
+    }
+
+    /// mmap 
+    pub fn mmap(&self, start_va: VirtAddr, end_va: VirtAddr, permission: MapPermission) {
+        let mut inner = self.inner_exclusive_access();
+        inner.memory_set.insert_framed_area(start_va, end_va, permission)
+    }
+
+    /// ummap 
+    pub fn munmap(&self, start_va: VirtAddr, end_va: VirtAddr) {
+        let mut inner = self.inner_exclusive_access();
+        inner.memory_set.remove_map_area(start_va, end_va);
     }
 
     /// change the location of the program break. return None if failed.

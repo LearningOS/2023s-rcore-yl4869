@@ -39,8 +39,8 @@ pub use context::TaskContext;
 pub use id::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
 pub use manager::add_task;
 pub use processor::{
-    current_task, current_trap_cx, current_user_token, run_tasks, schedule, take_current_task,
-    Processor,
+    current_task, current_trap_cx, current_user_token, run_tasks, schedule,
+    take_current_task, Processor, current_sys_time, current_status, current_syscall_times
 };
 
 /// Suspend the current 'Running' task and run the next task in task list.
@@ -66,7 +66,10 @@ pub fn suspend_current_and_run_next() {
 pub const IDLE_PID: usize = 0;
 
 /// Exit the current 'Running' task and run the next task in task list.
-pub fn exit_current_and_run_next(exit_code: i32) { // take from Processor let task = take_current_task().unwrap();
+pub fn exit_current_and_run_next(exit_code: i32) {
+    // take from Processor let task = take_current_task().unwrap();
+
+    let task = current_task().unwrap();
 
     let pid = task.getpid();
     if pid == IDLE_PID {
@@ -121,8 +124,8 @@ lazy_static! {
 pub fn add_initproc() {
     add_task(INITPROC.clone());
 }
-    // Generally, the first task in task list is an idle task (we call it zero process later).
-    // But in ch4, we load apps statically, so the first task is a real app.
+// Generally, the first task in task list is an idle task (we call it zero process later).
+// But in ch4, we load apps statically, so the first task is a real app.
 //     fn run_first_task(&self) -> ! {
 //         let mut inner = self.inner.exclusive_access();
 //         let next_task = &mut inner.tasks[0];
@@ -168,12 +171,12 @@ pub fn add_initproc() {
 //         inner.tasks[inner.current_task].get_user_token()
 //     }
 //
-//     // Get the current 'Running' task's status 
+//     // Get the current 'Running' task's status
 //     fn get_current_status(&self) -> TaskStatus {
 //         let inner = self.inner.exclusive_access();
 //         inner.tasks[inner.current_task].get_task_status()
 //     }
-//     // Get the current 'Running' task's syscall times 
+//     // Get the current 'Running' task's syscall times
 //     fn get_syscall_times(&self) -> [u32; MAX_SYSCALL_NUM] {
 //         let inner = self.inner.exclusive_access();
 //         inner.tasks[inner.current_task].syscall_times
@@ -186,14 +189,14 @@ pub fn add_initproc() {
 //         inner.tasks[current_task].memory_set.insert_framed_area(start_va, end_va, permission)
 //     }
 //
-//     // remove memset 
+//     // remove memset
 //     fn remove_map(&self, start_va: VirtAddr, end_va: VirtAddr) {
 //         let mut inner = self.inner.exclusive_access();
 //         let current_task = inner.current_task;
 //         inner.tasks[current_task].memory_set.remove_map_area(start_va, end_va);
 //     }
 //
-//     // Get the current 'Running' task's sys time 
+//     // Get the current 'Running' task's sys time
 //     fn get_sys_time(&self) -> usize {
 //         let inner = self.inner.exclusive_access();
 //         inner.tasks[inner.current_task].sys_time
@@ -298,7 +301,7 @@ pub fn add_initproc() {
 //     TASK_MANAGER.get_sys_time()
 // }
 //
-// // record syscall 
+// // record syscall
 // pub fn record_syscall(syscall_id: usize) {
 //     TASK_MANAGER.record_syscall(syscall_id)
 // }
@@ -314,7 +317,7 @@ pub fn add_initproc() {
 //     TASK_MANAGER.insert_map(start_va, end_va, permission);
 // }
 //
-// // remove current memset 
+// // remove current memset
 // pub fn remove_map(start_va: VirtAddr, end_va: VirtAddr) {
 //     TASK_MANAGER.remove_map(start_va, end_va);
 // }

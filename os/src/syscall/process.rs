@@ -8,7 +8,7 @@ use crate::{
     mm::{translated_refmut, translated_str, MapPermission, vaddr_mapped, VPNRange, VirtAddr, translated_byte_buffer},
     task::{
         add_task, current_task, current_user_token, exit_current_and_run_next,
-        suspend_current_and_run_next, TaskStatus,
+        suspend_current_and_run_next, TaskStatus, current_sys_time, current_status, current_syscall_times
     }, timer::{get_time_us, get_time_ms},
 };
 
@@ -151,10 +151,9 @@ pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
 /// HINT: What if [`TaskInfo`] is splitted by two pages ?
 pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
     trace!("kernel: sys_task_info NOT IMPLEMENTED YET!");
-    let task = current_task().unwrap().inner_exclusive_access();
-    let status = task.get_status();
-    let syscall_times = task.get_syscall_times();
-    let time = get_time_ms() - task.sys_time;
+    let status = current_status();
+    let syscall_times = current_syscall_times();
+    let time = get_time_ms() - current_sys_time();
     let taskinfo = translated_byte_buffer(current_user_token(), _ti as *const u8, core::mem::size_of::<TaskInfo>());
     if taskinfo.len() == 1 {
         let ti = unsafe { core::mem::transmute::<*const u8, *mut TaskInfo>(taskinfo[0].as_ptr())};
@@ -198,7 +197,8 @@ pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
         if (_port & 0x4) > 0 {
             permission |= MapPermission::X;
         }
-        insert_map(start_va, end_va, permission);
+        let task = current_task().unwrap();
+        task.mmap(start_va, end_va, permission);
         0
     } else {
         -1
@@ -220,7 +220,8 @@ pub fn sys_munmap(_start: usize, _len: usize) -> isize {
                 return -1;
             }
         }
-        remove_map(start_va, end_va);
+        let task = current_task().unwrap();
+        task.munmap(start_va, end_va);
         0
     } else {
         -1
