@@ -1,16 +1,18 @@
 //! Process management syscalls
 use alloc::sync::Arc;
 
+// use crate::{config::MAX_SYSCALL_NUM, loader::get_app_data_by_name, mm::{translated_refmut, translated_str}};
 use crate::{
     config::MAX_SYSCALL_NUM,
     loader::get_app_data_by_name,
-    mm::{translated_refmut, translated_str},
+    mm::{translated_refmut, translated_str, MapPermission, vaddr_mapped, VPNRange, VirtAddr, translated_byte_buffer},
     task::{
-        change_program_brk, exit_current_and_run_next, suspend_current_and_run_next, TaskStatus, current_user_token, current_status, current_syscall_times, current_sys_time, insert_map, remove_map
-    }, timer::{get_time_us, get_time_ms}, mm::{VirtAddr, VPNRange, vaddr_mapped, MapPermission}
+        add_task, current_task, current_user_token, exit_current_and_run_next,
+        suspend_current_and_run_next, TaskStatus,
+    }, timer::{get_time_us, get_time_ms},
 };
 
-use crate::mm::translated_byte_buffer;
+// use crate::mm::translated_byte_buffer;
 
 #[repr(C)]
 #[derive(Debug)]
@@ -149,9 +151,10 @@ pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
 /// HINT: What if [`TaskInfo`] is splitted by two pages ?
 pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
     trace!("kernel: sys_task_info NOT IMPLEMENTED YET!");
-    let status = current_status();
-    let syscall_times = current_syscall_times();
-    let time = get_time_ms() - current_sys_time();
+    let task = current_task().unwrap().inner_exclusive_access();
+    let status = task.get_status();
+    let syscall_times = task.get_syscall_times();
+    let time = get_time_ms() - task.sys_time;
     let taskinfo = translated_byte_buffer(current_user_token(), _ti as *const u8, core::mem::size_of::<TaskInfo>());
     if taskinfo.len() == 1 {
         let ti = unsafe { core::mem::transmute::<*const u8, *mut TaskInfo>(taskinfo[0].as_ptr())};

@@ -1,6 +1,7 @@
 //! Types related to task management & Functions for completely changing TCB
 use super::TaskContext;
 use super::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
+use crate::config::MAX_SYSCALL_NUM;
 use crate::config::TRAP_CONTEXT_BASE;
 use crate::mm::{MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE};
 use crate::sync::UPSafeCell;
@@ -8,7 +9,6 @@ use crate::trap::{trap_handler, TrapContext};
 use alloc::sync::{Arc, Weak};
 use alloc::vec::Vec;
 use core::cell::RefMut;
-use crate::config::MAX_SYSCALL_NUM;
 
 /// Task control block structure
 ///
@@ -73,8 +73,8 @@ pub struct TaskControlBlockInner {
     /// Syscall times
     pub syscall_times: [u32; MAX_SYSCALL_NUM],
 
-    /// Sys time 
-    pub sys_time: usize
+    /// Sys time
+    pub sys_time: usize,
 }
 
 impl TaskControlBlockInner {
@@ -87,9 +87,21 @@ impl TaskControlBlockInner {
         self.memory_set.token()
     }
     /// get the task statu
-    pub fn get_task_status(&self) -> TaskStatus {
+    pub fn get_status(&self) -> TaskStatus {
         self.task_status
     }
+    pub fn is_zombie(&self) -> bool {
+        self.get_status() == TaskStatus::Zombie
+    }
+    pub fn get_syscall_times(&self) -> [u32; MAX_SYSCALL_NUM] {
+        self.syscall_times
+    }
+    pub fn get_time(&self) -> usize {
+        self.sys_time
+    }
+}
+
+impl TaskControlBlock {
     /// Based on the elf info in program, build the contents of task in a new address space
     pub fn new(elf_data: &[u8], app_id: usize) -> Self {
         // memory_set with elf program headers/trampoline/trap context/user stack
@@ -118,6 +130,8 @@ impl TaskControlBlockInner {
                     exit_code: 0,
                     heap_bottom: user_sp,
                     program_brk: user_sp,
+                    sys_time: 0,
+                    syscall_times: [0; 500],
                 })
             },
         };
@@ -191,6 +205,8 @@ impl TaskControlBlockInner {
                     exit_code: 0,
                     heap_bottom: parent_inner.heap_bottom,
                     program_brk: parent_inner.program_brk,
+                    sys_time: 0,
+                    syscall_times: [0; 500],
                 })
             },
         });
