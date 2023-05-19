@@ -3,7 +3,8 @@ use super::TaskContext;
 use super::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
 use crate::config::MAX_SYSCALL_NUM;
 use crate::config::TRAP_CONTEXT_BASE;
-use crate::mm::{MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE, MapPermission};
+use crate::config::BIG_STRIDE;
+use crate::mm::{MapPermission, MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE};
 use crate::sync::UPSafeCell;
 use crate::trap::{trap_handler, TrapContext};
 use alloc::sync::{Arc, Weak};
@@ -41,7 +42,7 @@ impl TaskControlBlock {
         inner.get_time()
     }
     /// get_syscall_times
-    pub fn get_syscall_times(&self) -> [u32;MAX_SYSCALL_NUM] {
+    pub fn get_syscall_times(&self) -> [u32; MAX_SYSCALL_NUM] {
         let inner = self.inner_exclusive_access();
         inner.get_syscall_times()
     }
@@ -90,6 +91,8 @@ pub struct TaskControlBlockInner {
 
     /// Sys time
     pub sys_time: usize,
+
+    pub pass: usize,
 }
 
 impl TaskControlBlockInner {
@@ -147,6 +150,7 @@ impl TaskControlBlock {
                     program_brk: user_sp,
                     sys_time: 0,
                     syscall_times: [0; 500],
+                    pass: BIG_STRIDE / 2,
                 })
             },
         };
@@ -157,6 +161,55 @@ impl TaskControlBlock {
             user_sp,
             KERNEL_SPACE.exclusive_access().token(),
             kernel_stack_top,
+            trap_handler as usize,
+        );
+        task_control_block
+    }
+
+    /// spawn
+    pub fn spawn(self: &Arc<Self>, elf_data: &[u8]) -> Arc<Self> {
+        let mut parent_inner = self.inner_exclusive_access();
+
+        let (memory_set, user_sp, entry_point) = MemorySet::from_elf(elf_data);
+
+        let trap_cx_ppn = memory_set
+            .translate(VirtAddr::from(TRAP_CONTEXT_BASE).into())
+            .unwrap()
+            .ppn();
+
+        let pid_handle = pid_alloc();
+        let kernel_stack = kstack_alloc();
+        let kernel_stack_top = kernel_stack.get_top();
+
+        let task_control_block = Arc::new(TaskControlBlock {
+            pid: pid_handle,
+            kernel_stack,
+            inner: unsafe {
+                UPSafeCell::new(TaskControlBlockInner {
+                    trap_cx_ppn,
+                    base_size: user_sp,
+                    task_cx: TaskContext::goto_trap_return(kernel_stack_top),
+                    task_status: TaskStatus::Ready,
+                    memory_set,
+                    parent: Some(Arc::downgrade(self)),
+                    children: Vec::new(),
+                    exit_code: 0,
+                    heap_bottom: parent_inner.heap_bottom,
+                    program_brk: parent_inner.program_brk,
+                    sys_time: 0,
+                    syscall_times: [0; 500],
+                    pass: BIG_STRIDE / 2,
+                })
+            },
+        });
+
+        parent_inner.children.push(task_control_block.clone());
+        let trap_cx = task_control_block.inner_exclusive_access().get_trap_cx();
+        *trap_cx = TrapContext::app_init_context(
+            entry_point,
+            user_sp,
+            KERNEL_SPACE.exclusive_access().token(),
+            self.kernel_stack.get_top(),
             trap_handler as usize,
         );
         task_control_block
@@ -222,6 +275,7 @@ impl TaskControlBlock {
                     program_brk: parent_inner.program_brk,
                     sys_time: 0,
                     syscall_times: [0; 500],
+                    pass: BIG_STRIDE / 2,
                 })
             },
         });
@@ -242,13 +296,20 @@ impl TaskControlBlock {
         self.pid.0
     }
 
-    /// mmap 
+    /// set prio
+    pub fn set_prio(&self, prio: isize) {
+        let mut inner = self.inner_exclusive_access();
+        inner.pass = BIG_STRIDE / prio as usize;
+    }
+    /// mmap
     pub fn mmap(&self, start_va: VirtAddr, end_va: VirtAddr, permission: MapPermission) {
         let mut inner = self.inner_exclusive_access();
-        inner.memory_set.insert_framed_area(start_va, end_va, permission)
+        inner
+            .memory_set
+            .insert_framed_area(start_va, end_va, permission)
     }
 
-    /// ummap 
+    /// ummap
     pub fn munmap(&self, start_va: VirtAddr, end_va: VirtAddr) {
         let mut inner = self.inner_exclusive_access();
         inner.memory_set.remove_map_area(start_va, end_va);
