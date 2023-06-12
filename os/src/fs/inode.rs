@@ -4,7 +4,7 @@
 //!
 //! `UPSafeCell<OSInodeInner>` -> `OSInode`: for static `ROOT_INODE`,we
 //! need to wrap `OSInodeInner` into `UPSafeCell`
-use super::File;
+use super::{File, StatMode};
 use crate::drivers::BLOCK_DEVICE;
 use crate::mm::UserBuffer;
 use crate::sync::UPSafeCell;
@@ -102,8 +102,7 @@ impl OpenFlags {
 
 /// Open a file
 pub fn open_file(name: &str, flags: OpenFlags) -> Option<Arc<OSInode>> {
-    let (readable, writable) = flags.read_write();
-    if flags.contains(OpenFlags::CREATE) {
+    let (readable, writable) = flags.read_write(); if flags.contains(OpenFlags::CREATE) {
         if let Some(inode) = ROOT_INODE.find(name) {
             // clear size
             inode.clear();
@@ -124,6 +123,16 @@ pub fn open_file(name: &str, flags: OpenFlags) -> Option<Arc<OSInode>> {
     }
 }
 
+/// linkat by name
+pub fn linkat(old_name: &str, new_name: &str) -> isize {
+    ROOT_INODE.linkat(old_name, new_name)
+}
+
+/// unlinkat by name
+pub fn unlinkat(name: &str) -> isize {
+    ROOT_INODE.unlinkat(name)
+}
+
 impl File for OSInode {
     fn readable(&self) -> bool {
         self.readable
@@ -140,8 +149,7 @@ impl File for OSInode {
                 break;
             }
             inner.offset += read_size;
-            total_read_size += read_size;
-        }
+            total_read_size += read_size; }
         total_read_size
     }
     fn write(&self, buf: UserBuffer) -> usize {
@@ -154,5 +162,13 @@ impl File for OSInode {
             total_write_size += write_size;
         }
         total_write_size
+    }
+
+    fn stat(&self) -> (u64, StatMode, u32) {
+        // it must file
+        let inner = &self.inner.exclusive_access().inode;
+        let inode_id = ROOT_INODE.inode_id(inner);
+        let link_number = ROOT_INODE.link_number(inner);
+        (inode_id, StatMode::FILE, link_number)
     }
 }
