@@ -79,6 +79,23 @@ impl MemorySet {
         );
     }
 
+    /// map implement
+    pub fn map(&mut self, vpn_range: VPNRange, permission: PTEFlags) {
+        let flags = PTEFlags::V | PTEFlags::U | permission;
+        for vpn in vpn_range {
+            let frame = frame_alloc().unwrap();
+            let ppn = frame.ppn;
+            self.page_table.map(vpn, ppn, flags);
+        }
+    }
+
+    /// unmap implement
+    pub fn unmap(&mut self, vpn_range: VPNRange) {
+        for vpn in vpn_range {
+            self.page_table.unmap(vpn);
+        }
+    }
+
     /// Without kernel stacks.
     pub fn new_kernel() -> Self {
         let mut memory_set = Self::new_bare();
@@ -234,6 +251,7 @@ impl MemorySet {
     pub fn translate(&self, vpn: VirtPageNum) -> Option<PageTableEntry> {
         self.page_table.translate(vpn)
     }
+
     /// Remove
     pub fn remove_map_area(&mut self, start_va: VirtAddr, end_va: VirtAddr) {
         let start_vpn = start_va.floor();

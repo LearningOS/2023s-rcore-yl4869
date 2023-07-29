@@ -17,7 +17,7 @@ mod task;
 
 use crate::config::MAX_SYSCALL_NUM;
 use crate::loader::{get_app_data, get_num_app};
-use crate::mm::{VirtAddr, MapPermission};
+use crate::mm::{VPNRange, PTEFlags};
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
 use alloc::vec::Vec;
@@ -135,17 +135,17 @@ impl TaskManager {
     }
 
     /// get memset
-    fn insert_map(&self, start_va: VirtAddr, end_va: VirtAddr, permission: MapPermission) {
+    fn insert_map(&self, vpn_range: VPNRange, permission: PTEFlags) {
         let mut inner = self.inner.exclusive_access();
         let current_task = inner.current_task;
-        inner.tasks[current_task].memory_set.insert_framed_area(start_va, end_va, permission)
+        inner.tasks[current_task].memory_set.map(vpn_range, permission)
     }
 
     /// remove memset 
-    fn remove_map(&self, start_va: VirtAddr, end_va: VirtAddr) {
+    fn remove_map(&self, vpn_range: VPNRange) {
         let mut inner = self.inner.exclusive_access();
         let current_task = inner.current_task;
-        inner.tasks[current_task].memory_set.remove_map_area(start_va, end_va);
+        inner.tasks[current_task].memory_set.unmap(vpn_range);
     }
 
     /// Get the current 'Running' task's sys time 
@@ -264,11 +264,11 @@ pub fn change_program_brk(size: i32) -> Option<usize> {
 }
 
 ///GET current memset
-pub fn insert_map(start_va: VirtAddr, end_va: VirtAddr, permission: MapPermission) {
-    TASK_MANAGER.insert_map(start_va, end_va, permission);
+pub fn insert_map(vpn_range: VPNRange, permission: PTEFlags) {
+    TASK_MANAGER.insert_map(vpn_range, permission);
 }
 
 /// remove current memset 
-pub fn remove_map(start_va: VirtAddr, end_va: VirtAddr) {
-    TASK_MANAGER.remove_map(start_va, end_va);
+pub fn remove_map(vpn_range: VPNRange) {
+    TASK_MANAGER.remove_map(vpn_range);
 }
