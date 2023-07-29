@@ -48,29 +48,20 @@ pub fn sys_yield() -> isize {
 /// YOUR JOB: get time with second and microsecond
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
-pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
+pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
     trace!("kernel: sys_get_time");
     let us = get_time_us();
-    let timeval = translated_byte_buffer(
+    let mut timeval = translated_byte_buffer(
         current_user_token(),
-        _ts as *const u8,
+        ts as *const u8,
         core::mem::size_of::<TimeVal>(),
     );
-    if timeval.len() == 1 {
-        let ts = unsafe { core::mem::transmute::<*const u8, *mut TimeVal>(timeval[0].as_ptr()) };
-        unsafe {
-            *ts = TimeVal {
-                sec: us / 1_000_000,
-                usec: us % 1_000_000,
-            };
-        }
-    } else if timeval.len() == 2 {
-        let ts_sec = unsafe { core::mem::transmute::<*const u8, &mut usize>(timeval[0].as_ptr()) };
-        let ts_usec = unsafe { core::mem::transmute::<*const u8, &mut usize>(timeval[1].as_ptr()) };
-        *ts_sec = us / 1_000_000;
-        *ts_usec = us % 1_000_000;
-    } else {
-        panic!("TimeVal byte Error");
+    let ts: *mut TimeVal = timeval[0].as_mut_ptr().cast();
+    unsafe {
+        *ts = TimeVal {
+            sec: us / 1_000_000,
+            usec: us % 1_000_000,
+        };
     }
     0
 }
@@ -78,27 +69,23 @@ pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
 /// YOUR JOB: Finish sys_task_info to pass testcases
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TaskInfo`] is splitted by two pages ?
-pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
-    trace!("kernel: sys_task_info NOT IMPLEMENTED YET!");
+pub fn sys_task_info(ti: *mut TaskInfo) -> isize {
+    trace!("kernel: sys_task_info has been implement!");
     let status = current_status();
     let syscall_times = current_syscall_times();
     let time = get_time_ms() - current_sys_time();
-    let taskinfo = translated_byte_buffer(
+    let mut taskinfo = translated_byte_buffer(
         current_user_token(),
-        _ti as *const u8,
+        ti as *const u8,
         core::mem::size_of::<TaskInfo>(),
     );
-    if taskinfo.len() == 1 {
-        let ti = unsafe { core::mem::transmute::<*const u8, *mut TaskInfo>(taskinfo[0].as_ptr()) };
-        unsafe {
-            *ti = TaskInfo {
-                status,
-                syscall_times,
-                time,
-            };
-        }
-    } else {
-        panic!("error, can't do");
+    let ti: *mut TaskInfo = taskinfo[0].as_mut_ptr().cast();
+    unsafe {
+        *ti = TaskInfo {
+            status,
+            syscall_times,
+            time,
+        };
     }
     0
 }
