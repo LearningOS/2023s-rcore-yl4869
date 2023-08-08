@@ -1,5 +1,5 @@
 //! File and filesystem-related syscalls
-use crate::fs::{open_file, OpenFlags, Stat};
+use crate::fs::{linkat_file, open_file, unlinkat_file, OpenFlags, Stat};
 use crate::mm::{translated_byte_buffer, translated_str, UserBuffer};
 use crate::task::{current_task, current_user_token};
 
@@ -36,31 +36,7 @@ pub fn sys_read(fd: usize, buf: *const u8, len: usize) -> isize {
         let file = file.clone();
         if !file.readable() {
             return -1;
-// =======
-//     match fd {
-//         FD_STDIN => {
-//             assert_eq!(len, 1, "Only support len = 1 in sys_read!");
-//             let mut c: usize; loop {
-//                 c = console_getchar();
-//                 if c == 0 {
-//                     suspend_current_and_run_next();
-//                     continue;
-//                 } else {
-//                     break;
-//                 }
-//             }
-//             let ch = c as u8;
-//             let mut buffers = translated_byte_buffer(current_user_token(), buf, len);
-//             unsafe {
-//                 buffers[0].as_mut_ptr().write_volatile(ch);
-//             }
-//             1
-//         }
-//         _ => {
-//             panic!("Unsupported fd in sys_read!");
-// >>>>>>> d9ce9b1 (finish: fix the ch5)
         }
-        // release current task TCB manually to avoid multi-borrow
         drop(inner);
         trace!("kernel: sys_read .. file.read");
         file.read(UserBuffer::new(translated_byte_buffer(token, buf, len))) as isize
@@ -99,28 +75,66 @@ pub fn sys_close(fd: usize) -> isize {
 }
 
 /// YOUR JOB: Implement fstat.
-pub fn sys_fstat(_fd: usize, _st: *mut Stat) -> isize {
+pub fn sys_fstat(fd: usize, st: *mut Stat) -> isize {
     trace!(
         "kernel:pid[{}] sys_fstat NOT IMPLEMENTED",
         current_task().unwrap().pid.0
     );
-    -1
+    let mut stat = translated_byte_buffer(
+        current_user_token(),
+        st as *const u8,
+        core::mem::size_of::<Stat>(),
+    );
+
+    let task = current_task().unwrap();
+    let inner = task.inner_exclusive_access();
+        let st: *mut Stat = stat[0].as_mut_ptr().cast();
+    if fd >= inner.fd_table.len() {
+        return -1;
+    }
+    if inner.fd_table[fd].is_none() {
+        return -1;
+    }
+    warn!("into it");
+    if let Some(file) = &inner.fd_table[fd] {
+        let file = file.clone();
+        // release current task TCB mannually to avoid multi-borrow
+        drop(inner);
+        file.stat(st);
+        warn!("exit it");
+    }
+    0
 }
 
 /// YOUR JOB: Implement linkat.
-pub fn sys_linkat(_old_name: *const u8, _new_name: *const u8) -> isize {
+pub fn sys_linkat(old_name: *const u8, new_name: *const u8) -> isize {
     trace!(
         "kernel:pid[{}] sys_linkat NOT IMPLEMENTED",
         current_task().unwrap().pid.0
     );
-    -1
+    let token = current_user_token();
+    let old_path = translated_str(token, old_name);
+    let new_path = translated_str(token, new_name);
+    if old_path != new_path {
+        warn!("start link");
+        linkat_file(&old_path, &new_path);
+        warn!("finish link");
+        0
+    } else {
+        -1
+    }
 }
 
 /// YOUR JOB: Implement unlinkat.
-pub fn sys_unlinkat(_name: *const u8) -> isize {
+pub fn sys_unlinkat(name: *const u8) -> isize {
     trace!(
         "kernel:pid[{}] sys_unlinkat NOT IMPLEMENTED",
         current_task().unwrap().pid.0
     );
-    -1
+    let token = current_user_token();
+    let path = translated_str(token, name);
+    warn!("start unlink");
+    let k = unlinkat_file(&path);
+    warn!("finish unlinl");
+    k
 }

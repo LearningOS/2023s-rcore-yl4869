@@ -155,6 +155,110 @@ impl Inode {
             v
         })
     }
+
+    /// stat
+    pub fn stat(&self, root_inode: &Inode) -> (usize, usize, bool){
+        let fs = self.fs.lock();
+        let (ino, count) = root_inode.read_disk_inode(|disk_inode| {
+            assert!(disk_inode.is_dir());
+            let mut count = 0;
+            let mut inode = 0;
+            let file_count = (disk_inode.size as usize) / DIRENT_SZ;
+            let mut dirent = DirEntry::empty();
+            for i in 0..file_count {
+                assert_eq!(
+                    disk_inode.read_at(i * DIRENT_SZ, dirent.as_bytes_mut(), &self.block_device,),
+                    DIRENT_SZ,
+                );
+                let (block_id, block_offset) = fs.get_disk_inode_pos(dirent.inode_id());
+                if self.block_id == block_id as usize && self.block_offset == block_offset as usize {
+                    count += 1;
+                    inode = dirent.inode_id();
+                }
+            }
+            (inode, count)
+        });
+        let is_dir = self.read_disk_inode(|disk_inode| {
+            disk_inode.is_dir()
+        });
+        log::warn!("exit the stat: easy fs");
+        (ino as usize, count, is_dir)
+    }
+
+    /// linkat
+    pub fn linkat(&self, old_name: &str, new_name: &str) {
+        let mut fs = self.fs.lock();
+        self.modify_disk_inode(|root_inode| {
+            let file_count = (root_inode.size as usize) / DIRENT_SZ;
+            let new_size = (file_count + 1) * DIRENT_SZ;
+            let inode_id = self.find_inode_id(old_name, root_inode).unwrap();
+            self.increase_size(new_size as u32, root_inode, &mut fs);
+            let dirent = DirEntry::new(new_name, inode_id);
+            root_inode.write_at(
+                file_count * DIRENT_SZ,
+                dirent.as_bytes(),
+                &self.block_device,
+            )
+        });
+    }
+
+    ///unlinkat
+    pub fn unlinkat(&self, name: &str) -> isize {
+        let _fs = self.fs.lock();
+        log::warn!("into unlinkat");
+        self.modify_disk_inode(|root_inode| {
+            let file_count = (root_inode.size as usize) / DIRENT_SZ;
+            let mut v: Vec<DirEntry> = Vec::new();
+            for i in 0..file_count {
+                let mut dirent = DirEntry::empty();
+                assert_eq!(
+                    root_inode.read_at(i * DIRENT_SZ, dirent.as_bytes_mut(), &self.block_device,),
+                    DIRENT_SZ,
+                );
+                v.push(dirent);
+            }
+            let count = v.iter().filter(|x| &*x.name() == name).count();
+            log::warn!("unlinkat: get count");
+            if count == 1 {
+                log::warn!("into one");
+                // self.find(name).unwrap().clear();
+                log::warn!("clear finish");
+                let index = v
+                    .iter_mut()
+                    .enumerate()
+                    .find(|(_, x)| x.name() == name)
+                    .unwrap()
+                    .0;
+                log::warn!("the index is {}", index);
+                v.remove(index);
+                for i in 0..file_count - 1 {
+                    root_inode.write_at(i * DIRENT_SZ, v[i].as_bytes(), &self.block_device);
+                }
+                root_inode.size = ((file_count - 1) * DIRENT_SZ) as u32;
+                log::warn!("unlinkat: 1 count");
+                0
+            } else if count == 0 {
+                log::warn!("unlinkat: only zero");
+                -1
+            } else {
+                log::warn!("into more than");
+                let index = v
+                    .iter_mut()
+                    .enumerate()
+                    .find(|(_, x)| x.name() == name)
+                    .unwrap()
+                    .0;
+                v.remove(index);
+                for i in 0..file_count - 1 {
+                    root_inode.write_at(i * DIRENT_SZ, v[i].as_bytes(), &self.block_device);
+                }
+                root_inode.size = ((file_count - 1) * DIRENT_SZ) as u32;
+                log::warn!("unlinkat: more than 1 count");
+                0
+            }
+        })
+    }
+
     /// Read data from current inode
     pub fn read_at(&self, offset: usize, buf: &mut [u8]) -> usize {
         let _fs = self.fs.lock();
@@ -183,4 +287,5 @@ impl Inode {
         });
         block_cache_sync_all();
     }
+
 }
