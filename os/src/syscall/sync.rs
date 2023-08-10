@@ -1,7 +1,11 @@
+
 use crate::sync::{Condvar, Mutex, MutexBlocking, MutexSpin, Semaphore};
 use crate::task::{block_current_and_run_next, current_process, current_task};
 use crate::timer::{add_timer, get_time_ms};
 use alloc::sync::Arc;
+use alloc::vec;
+use alloc::vec::Vec;
+
 /// sleep syscall
 pub fn sys_sleep(ms: usize) -> isize {
     trace!(
@@ -70,6 +74,7 @@ pub fn sys_mutex_lock(mutex_id: usize) -> isize {
     );
     let process = current_process();
     let process_inner = process.inner_exclusive_access();
+
     let mutex = Arc::clone(process_inner.mutex_list[mutex_id].as_ref().unwrap());
     drop(process_inner);
     drop(process);
@@ -120,11 +125,13 @@ pub fn sys_semaphore_create(res_count: usize) -> isize {
         .map(|(id, _)| id)
     {
         process_inner.semaphore_list[id] = Some(Arc::new(Semaphore::new(res_count)));
+        process_inner.available[id] = res_count;
         id
     } else {
         process_inner
             .semaphore_list
             .push(Some(Arc::new(Semaphore::new(res_count))));
+        process_inner.available.push(res_count);
         process_inner.semaphore_list.len() - 1
     };
     id as isize
@@ -144,6 +151,7 @@ pub fn sys_semaphore_up(sem_id: usize) -> isize {
     );
     let process = current_process();
     let process_inner = process.inner_exclusive_access();
+
     let sem = Arc::clone(process_inner.semaphore_list[sem_id].as_ref().unwrap());
     drop(process_inner);
     sem.up();
@@ -163,8 +171,9 @@ pub fn sys_semaphore_down(sem_id: usize) -> isize {
             .tid
     );
     let process = current_process();
-    let process_inner = process.inner_exclusive_access();
+    let mut process_inner = process.inner_exclusive_access();
     let sem = Arc::clone(process_inner.semaphore_list[sem_id].as_ref().unwrap());
+    process_inner.available[sem_id] -= 1;
     drop(process_inner);
     sem.down();
     0

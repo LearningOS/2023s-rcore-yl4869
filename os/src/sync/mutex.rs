@@ -12,6 +12,12 @@ pub trait Mutex: Sync + Send {
     fn lock(&self);
     /// Unlock the mutex
     fn unlock(&self);
+    /// locked(&self)
+    fn locked(&self) -> bool;
+    ///wait_queue
+    fn wait_queue(&self) -> VecDeque<Arc<TaskControlBlock>>;
+    ///is_block(&self) 
+    fn is_block(&self) -> bool;
 }
 
 /// Spinlock Mutex struct
@@ -50,6 +56,23 @@ impl Mutex for MutexSpin {
         let mut locked = self.locked.exclusive_access();
         *locked = false;
     }
+
+    fn locked(&self) -> bool{
+        let locked = self.locked.exclusive_access();
+        if *locked {
+            true
+        } else {
+            false
+        }
+    }
+
+    fn wait_queue(&self) -> VecDeque<Arc<TaskControlBlock>> {
+        panic!("not into");
+    }
+    fn is_block(&self) -> bool {
+        false
+    }
+
 }
 
 /// Blocking Mutex struct
@@ -101,5 +124,19 @@ impl Mutex for MutexBlocking {
         } else {
             mutex_inner.locked = false;
         }
+    }
+
+    fn locked(&self) -> bool{
+        let mutex_inner = self.inner.exclusive_access();
+        mutex_inner.locked
+    }
+
+    fn wait_queue(&self) -> VecDeque<Arc<TaskControlBlock>> {
+        let mutex_inner = self.inner.exclusive_access();
+        mutex_inner.wait_queue.clone()
+    }
+
+    fn is_block(&self) -> bool {
+        true
     }
 }

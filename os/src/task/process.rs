@@ -51,7 +51,13 @@ pub struct ProcessControlBlockInner {
     pub condvar_list: Vec<Option<Arc<Condvar>>>,
 
     /// deadlock enable 
-    pub deadlock_enable: bool
+    pub deadlock_enable: bool,
+
+    /// available vec 
+    pub available: Vec<usize>,
+
+    /// allocation vec 
+    pub allocation: Vec<Vec<usize>>,
 }
 
 impl ProcessControlBlockInner {
